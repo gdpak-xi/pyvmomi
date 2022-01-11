@@ -1086,7 +1086,7 @@ class SSLTunnelConnection(object):
    # @param cert_file The SSL certificate file to use when wrapping the socket.
    # @param kwargs In case caller passed in extra parameters not handled by
    #        SSLTunnelConnection
-   def __call__(self, path, key_file=None, cert_file=None, **kwargs):
+   def __call__(self, path, key_file=None, cert_file=None, timeout=None, **kwargs):
       # Only pass in the named arguments that HTTPConnection constructor
       # understands
       tmpKwargs = {}
@@ -1101,6 +1101,7 @@ class SSLTunnelConnection(object):
       retval = http_client.HTTPSConnection(path)
       retval.sock = _SocketWrapper(tunnel.sock,
                                    keyfile=key_file, certfile=cert_file)
+      retval.sock.settimeout(timeout)
       return retval
 
 
@@ -1223,6 +1224,7 @@ class SoapStubAdapter(SoapStubAdapterBase):
    # @param samlToken SAML Token that should be used in SOAP security header for login
    # @param sslContext SSL Context describing the various SSL options. It is only
    #                   supported in Python 2.7.9 or higher.
+   # @param socketTimeout: socket timeout in seconds
    def __init__(self, host='localhost', port=443, ns=None, path='/sdk',
                 url=None, sock=None, poolSize=5,
                 certFile=None, certKeyFile=None,
@@ -1230,7 +1232,8 @@ class SoapStubAdapter(SoapStubAdapterBase):
                 thumbprint=None, cacertsFile=None, version=None,
                 acceptCompressedResponses=True,
                 connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
-                samlToken=None, sslContext=None, requestContext=None):
+                samlToken=None, sslContext=None, requestContext=None,
+                socketTimeout=None):
       if ns:
          assert(version is None)
          version = versionMap[ns]
@@ -1292,6 +1295,7 @@ class SoapStubAdapter(SoapStubAdapterBase):
       self.requestContext = requestContext
       self.requestModifierList = []
       self._acceptCompressedResponses = acceptCompressedResponses
+      self.socketTimeout = socketTimeout
 
    # Force a socket shutdown. Before python 2.7, ssl will fail to close
    # the socket (http://bugs.python.org/issue10127).
@@ -1425,7 +1429,8 @@ class SoapStubAdapter(SoapStubAdapterBase):
          self.lock.release()
       else:
          self.lock.release()
-         result = self.scheme(self.host, **self.schemeArgs)
+         result = self.scheme(self.host, timeout=self.socketTimeout,
+                 **self.schemeArgs)
 
          # Always disable NAGLE algorithm
          #

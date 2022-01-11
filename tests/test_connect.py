@@ -115,7 +115,8 @@ class ConnectionTests(tests.VCRTestBase):
             'sdkTunnel', 8089, httpProxyHost='vcsa',
             certKeyFile='my_key_file', certFile='my_cert_file').GetConnection()
         conn.request('GET', '/')
-        hs.assert_called_once_with('vcsa:80', cert_file='my_cert_file', key_file='my_key_file')
+        hs.assert_called_once_with('vcsa:80', cert_file='my_cert_file',
+                key_file='my_key_file', timeout=None)
         conn.set_tunnel.assert_called_once_with('sdkTunnel:8089')
 
     @tests.VCRTestBase.my_vcr.use_cassette('http_proxy.yaml',
