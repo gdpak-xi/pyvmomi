@@ -194,7 +194,7 @@ def Connect(host='localhost', port=443, user='root', pwd='',
             version=None, keyFile=None, certFile=None, thumbprint=None,
             sslContext=None, b64token=None, mechanism='userpass',
             disableSslCertValidation=False,
-            socketTimeout=None):
+            socketTimeout=None, responseTimeout=None):
    """
    Connect to the specified server, login and return the service
    instance object.
@@ -244,6 +244,9 @@ def Connect(host='localhost', port=443, user='root', pwd='',
    @param disableSslCertValidation: Creates an unverified SSL context when True.
    @param socketTimeout: socket timeout in seconds
    @type  socketTimeout: float
+   @param responseTimeout: response timeout in seconds. Set None for disabling
+   it
+   @type  responseTimeout: float
    """
    try:
       info = re.match(_rx, host)
@@ -268,12 +271,14 @@ def Connect(host='localhost', port=443, user='root', pwd='',
    if mechanism == 'userpass':
       si, stub = __Login(host, port, user, pwd, service, adapter, version, path,
                          keyFile, certFile, thumbprint, sslContext,
-                         connectionPoolTimeout, socketTimeout=socketTimeout)
+                         connectionPoolTimeout, socketTimeout=socketTimeout,
+                         responseTimeout=responseTimeout)
    elif mechanism == 'sspi':
       si, stub = __LoginBySSPI(host, port, service, adapter, version, path,
                                keyFile, certFile, thumbprint, sslContext,
                                b64token, connectionPoolTimeout,
-                               socketTimeout=socketTimeout)
+                               socketTimeout=socketTimeout,
+                               responseTimeout=responseTimeout)
    else:
       raise Exception('''The provided connection mechanism is not available, the
               supported mechanisms are userpass or sspi''')
@@ -286,7 +291,8 @@ def Connect(host='localhost', port=443, user='root', pwd='',
 def ConnectNoSSL(host='localhost', port=443, user='root', pwd='',
                  service="hostd", adapter="SOAP", namespace=None, path="/sdk",
                  version=None, keyFile=None, certFile=None, thumbprint=None,
-                 b64token=None, mechanism='userpass', socketTimeout=None):
+                 b64token=None, mechanism='userpass', socketTimeout=None,
+                 responseTimeout=None):
    """
    Provides a standard method for connecting to a specified server without SSL
    verification. Useful when connecting to servers with self-signed certificates
@@ -311,7 +317,8 @@ def ConnectNoSSL(host='localhost', port=443, user='root', pwd='',
                   sslContext=sslContext,
                   b64token=b64token,
                   mechanism=mechanism,
-                  socketTimeout=socketTimeout)
+                  socketTimeout=socketTimeout,
+                  responseTimeout=responseTimeout)
 
 def Disconnect(si):
    """
@@ -346,7 +353,7 @@ def GetLocalTicket(si, user):
 def __Login(host, port, user, pwd, service, adapter, version, path,
             keyFile, certFile, thumbprint, sslContext,
             connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
-            socketTimeout=None):
+            socketTimeout=None, responseTimeout=None):
    """
    Private method that performs the actual Connect and returns a
    connected service instance object.
@@ -381,12 +388,16 @@ def __Login(host, port, user, pwd, service, adapter, version, path,
    @type  connectionPoolTimeout: int
    @param socketTimeout: socket timeout in seconds
    @type  socketTimeout: float
+   @param responseTimeout: response timeout in seconds. Set None for disabling
+   it
+   @type  responseTimeout: float
    """
 
    content, si, stub = __RetrieveContent(host, port, adapter, version, path,
                                          keyFile, certFile, thumbprint,
                                          sslContext, connectionPoolTimeout,
-                                         socketTimeout=socketTimeout)
+                                         socketTimeout=socketTimeout,
+                                         responseTimeout=responseTimeout)
 
    # Get a ticket if we're connecting to localhost and password is not specified
    if host == 'localhost' and not pwd:
@@ -412,7 +423,7 @@ def __Login(host, port, user, pwd, service, adapter, version, path,
 def __LoginBySSPI(host, port, service, adapter, version, path,
                   keyFile, certFile, thumbprint, sslContext, b64token,
                   connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
-                  socketTimeout=None):
+                  socketTimeout=None, responseTimeout=None):
    """
    Private method that performs the actual Connect and returns a
    connected service instance object.
@@ -445,12 +456,16 @@ def __LoginBySSPI(host, port, service, adapter, version, path,
    @type  connectionPoolTimeout: int
    @param socketTimeout: socket timeout in seconds
    @type  socketTimeout: float
+   @param responseTimeout: response timeout in seconds. Set None for disabling
+   it
+   @type  responseTimeout: float
    """
 
    content, si, stub = __RetrieveContent(host, port, adapter, version, path,
                                          keyFile, certFile, thumbprint,
                                          sslContext, connectionPoolTimeout,
-                                         socketTimeout=socketTimeout)
+                                         socketTimeout=socketTimeout,
+                                         responseTimeout=responseTimeout)
 
    if b64token is None:
       raise Exception('Token is not defined for sspi login')
@@ -483,7 +498,7 @@ def __Logout(si):
 def __RetrieveContent(host, port, adapter, version, path, keyFile, certFile,
                       thumbprint, sslContext,
                       connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
-                      socketTimeout=None):
+                      socketTimeout=None, responseTimeout=None):
    """
    Retrieve service instance for connection.
    @param host: Which host to connect to.
@@ -505,6 +520,9 @@ def __RetrieveContent(host, port, adapter, version, path, keyFile, certFile,
    @type  connectionPoolTimeout: int
    @param socketTimeout: socket timeout in seconds
    @type  socketTimeout: float
+   @param responseTimeout: response timeout in seconds. Set None for disabling
+   it
+   @type  responseTimeout: float
    """
 
    # XXX remove the adapter and service arguments once dependent code is fixed
@@ -515,7 +533,9 @@ def __RetrieveContent(host, port, adapter, version, path, keyFile, certFile,
    stub = SoapStubAdapter(host, port, version=version, path=path,
                           certKeyFile=keyFile, certFile=certFile,
                           thumbprint=thumbprint, sslContext=sslContext,
-                          connectionPoolTimeout=connectionPoolTimeout)
+                          connectionPoolTimeout=connectionPoolTimeout,
+                          socketTimeout=socketTimeout,
+                          responseTimeout=responseTimeout)
 
    # Get Service instance
    si = vim.ServiceInstance("ServiceInstance", stub)
@@ -764,7 +784,7 @@ def SmartStubAdapter(host='localhost', port=443, path='/sdk',
                      connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
                      samlToken=None, sslContext=None,
                      disableSslCertValidation=False,
-                     socketTimeout=None):
+                     socketTimeout=None, responseTimeout=None):
    """
    Determine the most preferred API version supported by the specified server,
    then create a soap stub adapter using that version
@@ -807,13 +827,15 @@ def SmartStubAdapter(host='localhost', port=443, path='/sdk',
                           acceptCompressedResponses=acceptCompressedResponses,
                           connectionPoolTimeout=connectionPoolTimeout,
                           samlToken=samlToken, sslContext=sslContext,
-                          socketTimeout=socketTimeout)
+                          socketTimeout=socketTimeout,
+                          responseTimeout=responseTimeout)
 
 def SmartConnect(protocol='https', host='localhost', port=443, user='root', pwd='',
                  service="hostd", path="/sdk", connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
                  preferredApiVersions=None, keyFile=None, certFile=None,
                  thumbprint=None, sslContext=None, b64token=None, mechanism='userpass',
-                 disableSslCertValidation=False, socketTimeout=None):
+                 disableSslCertValidation=False, socketTimeout=None,
+                 responseTimeout=None):
    """
    Determine the most preferred API version supported by the specified server,
    then connect to the specified server using that API version, login and return
@@ -862,6 +884,9 @@ def SmartConnect(protocol='https', host='localhost', port=443, user='root', pwd=
    @param disableSslCertValidation: Creates an unverified SSL context when True.
    @param socketTimeout: socket timeout in seconds
    @type  socketTimeout: float
+   @param responseTimeout: response timeout in seconds. Set None for disabling
+   it
+   @type  responseTimeout: float
    """
 
    if preferredApiVersions is None:
@@ -896,14 +921,15 @@ def SmartConnect(protocol='https', host='localhost', port=443, user='root', pwd=
                   b64token=b64token,
                   mechanism=mechanism,
                   disableSslCertValidation=disableSslCertValidation,
-                  socketTimeout=socketTimeout)
+                  socketTimeout=socketTimeout,
+                  responseTimeout=responseTimeout)
 
 # SmartConnectNoSSL() is deprecated. Use SmartConnect(disableSslCertValidation=True).
 def SmartConnectNoSSL(protocol='https', host='localhost', port=443, user='root', pwd='',
                       service="hostd", path="/sdk", connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
                       preferredApiVersions=None, keyFile=None, certFile=None,
                       thumbprint=None, b64token=None, mechanism='userpass',
-                      socketTimeout=None):
+                      socketTimeout=None, responseTimeout=None):
    """
    Provides a standard method for connecting to a specified server without SSL
    verification. Useful when connecting to servers with self-signed certificates
@@ -928,7 +954,8 @@ def SmartConnectNoSSL(protocol='https', host='localhost', port=443, user='root',
                        sslContext=sslContext,
                        b64token=b64token,
                        mechanism=mechanism,
-                       socketTimeout=socketTimeout)
+                       socketTimeout=socketTimeout,
+                       responseTimeout=responseTimeout)
 
 def OpenUrlWithBasicAuth(url, user='root', pwd='', verify=True):
    """

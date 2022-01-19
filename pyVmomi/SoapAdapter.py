@@ -42,6 +42,8 @@ from xml.parsers.expat import ExpatError
 import copy
 import contextlib
 
+import gevent
+
 try:
    USERWORLD = os.uname()[0] == 'VMkernel'
 except:
@@ -360,7 +362,7 @@ class SoapSerializer:
          # TODO: Add a new "typens" attr?
          ns, name = GetQualifiedWsdlName(Type(val))
          attr += ' type="{0}"'.format(name)
-         self.writer.write('<{0}{1}>{2}</{3}>'.format(info.name, attr,
+         self.writer.write(u'<{0}{1}>{2}</{3}>'.format(info.name, attr,
                                               val._moId,
                                               info.name))
       elif isinstance(val, list):
@@ -1029,6 +1031,8 @@ class _HTTPSConnection(http_client.HTTPSConnection):
       for key in SOAP_ADAPTER_ARGS:
          if key in tmpKwargs:
             self._sslArgs[key] = tmpKwargs.pop(key)
+      if "response_timeout" in tmpKwargs:
+          tmpKwargs.pop("response_timeout")
       http_client.HTTPSConnection.__init__(self, *args, **tmpKwargs)
 
    ## Override connect to allow us to pass in additional ssl paramters to
@@ -1089,16 +1093,30 @@ class SSLTunnelConnection(object):
    def __call__(self, path, key_file=None, cert_file=None, timeout=None, **kwargs):
       # Only pass in the named arguments that HTTPConnection constructor
       # understands
+      self.response_timeout = None
       tmpKwargs = {}
       for key in http_client.HTTPConnection.__init__.__code__.co_varnames:
          if key in kwargs and key != 'self':
             tmpKwargs[key] = kwargs[key]
+      if "response_timeout" in kwargs:
+          self.response_timeout = kwargs["response_timeout"]
       tunnel = http_client.HTTPConnection(path, **tmpKwargs)
       tunnel.request('CONNECT', self.proxyPath)
-      resp = tunnel.getresponse()
-      if resp.status != 200:
-        raise http_client.HTTPException("{0} {1}".format(resp.status, resp.reason))
+      try:
+          with gevent.Timeout(self.response_timeout) as t:
+              resp = tunnel.getresponse()
+              if resp.status != 200:
+                  raise http_client.HTTPException("{0} {1}".format(resp.status, resp.reason))
+      except gevent.Timeout as ex:
+          # If the timeout raised is not because of this instance of timeout, 
+          # pass it further so that it is handled by the client code from
+          # where this instance of the timeout is started.
+          if ex is not t:
+              raise
+          raise SystemError("Timed out (%s) while reading response from server"
+                  % ex)
       retval = http_client.HTTPSConnection(path)
+      tunnel.sock.settimeout(timeout)
       retval.sock = _SocketWrapper(tunnel.sock,
                                    keyfile=key_file, certfile=cert_file)
       retval.sock.settimeout(timeout)
@@ -1225,6 +1243,8 @@ class SoapStubAdapter(SoapStubAdapterBase):
    # @param sslContext SSL Context describing the various SSL options. It is only
    #                   supported in Python 2.7.9 or higher.
    # @param socketTimeout: socket timeout in seconds
+   # @param responseTimeout: response timeout in seconds. Set None for disabling
+   # it
    def __init__(self, host='localhost', port=443, ns=None, path='/sdk',
                 url=None, sock=None, poolSize=5,
                 certFile=None, certKeyFile=None,
@@ -1233,7 +1253,7 @@ class SoapStubAdapter(SoapStubAdapterBase):
                 acceptCompressedResponses=True,
                 connectionPoolTimeout=CONNECTION_POOL_IDLE_TIMEOUT_SEC,
                 samlToken=None, sslContext=None, requestContext=None,
-                socketTimeout=None):
+                socketTimeout=None, responseTimeout=None):
       if ns:
          assert(version is None)
          version = versionMap[ns]
@@ -1291,11 +1311,14 @@ class SoapStubAdapter(SoapStubAdapterBase):
          self.schemeArgs['cert_reqs'] = ssl.CERT_REQUIRED
       if sslContext:
          self.schemeArgs['context'] = sslContext
+      if responseTimeout:
+         self.schemeArgs['response_timeout'] = responseTimeout
       self.samlToken = samlToken
       self.requestContext = requestContext
       self.requestModifierList = []
       self._acceptCompressedResponses = acceptCompressedResponses
       self.socketTimeout = socketTimeout
+      self.responseTimeout = responseTimeout
 
    # Force a socket shutdown. Before python 2.7, ssl will fail to close
    # the socket (http://bugs.python.org/issue10127).
@@ -1352,11 +1375,22 @@ class SoapStubAdapter(SoapStubAdapterBase):
       conn = self.GetConnection()
       try:
          conn.request('POST', self.path, req, headers)
-         resp = conn.getresponse()
+         with gevent.Timeout(self.responseTimeout) as t:
+            resp = conn.getresponse()
       except (socket.error, http_client.HTTPException):
          # The server is probably sick, drop all of the cached connections.
          self.DropConnections()
          raise
+      except gevent.Timeout as ex:
+         # The server is probably sick, drop all of the cached connections.
+         self.DropConnections()
+         # If the timeout raised is not because of this instance of timeout,
+         # pass it further so that it is handled by the client code from
+         # where this instance of the timeout is started.
+         if ex is not t:
+            raise
+         raise SystemError("Timed out (%s) while reading response from server" %
+                ex)
       # NOTE (hartsocks): this cookie handling code should go away in a future
       # release. The string 'set-cookie' and 'Set-Cookie' but both are
       # acceptable, but the supporting library may have a bug making it
